@@ -177,3 +177,5 @@ cython_debug/
 /tmp_doc
 
 my_setting.json
+setting.json
+password_log.csv
