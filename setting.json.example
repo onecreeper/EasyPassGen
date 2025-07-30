@@ -1,4 +1,5 @@
 {
-    "salt": "test",
-    "size": "12"
+    "salt": "salt",
+    "default_password": "passwd",
+    "default_size": 4 
 }

@@ -48,6 +48,7 @@ def ensure_valid_output(s, size):
 
 import csv
 from datetime import datetime
+import pyperclip
 
 def log_to_csv(domain, size, result):
     """记录到CSV文件"""
@@ -61,6 +62,10 @@ def log_to_csv(domain, size, result):
         ])
 
 def main():
+    config = read_config('setting.json')
+    salt = config.get("salt", "")
+    default_password = config.get("default_password", "")
+
     while True:
         url = input('请输入域名：')
         domain = urlparse(url).netloc
@@ -68,28 +73,39 @@ def main():
             domain = url.split('//')[-1].split('/')[0]
         domain = get_main_domain(domain)
         if domain:  # 确保最终domain不为空
+            print(f"获取到的域名: {domain}")
             break
         print("无效的域名格式，请重新输入")
-    config = read_config('setting.json')
-    salt = config.get("salt", "")
-    size = int(config.get("size", 12))
+
+    # 使用默认密码或输入密码
+    passwd = input(f"输入密码(默认'{default_password}'): ") or default_password
     
     # 拼接盐和域名计算MD5
     text = salt + domain
     md5_hash = get_md5(text)
     
-    # 取前N位并确保符合要求
-    res = ensure_valid_output(md5_hash, size)
+    # 生成4/6/8三种长度的密码
+    results = {}
+    for size in [4, 6, 8]:
+        res = ensure_valid_output(md5_hash, size)
+        results[size] = passwd + res
     
-    # 输出密码和结果的拼接
-    passwd = input("输入密码：")
-    result = passwd + res
-    print(result)
+    # 输出所有密码
+    print("\n生成的密码:")
+    for size, pwd in results.items():
+        print(f"{size}位: {pwd}")
     
-    # 记录到日志文件（使用提取后的主域名）
-    log_to_csv(domain, size, result)
+    # 将默认size密码复制到剪贴板
+    default_size = config.get("default_size", 4)
+    pyperclip.copy(results[default_size])
+    print(f"\n已复制{default_size}位密码到剪贴板")
+    
+    # 记录到日志文件
+    for size, result in results.items():
+        log_to_csv(domain, size, result)
 
 
 
 if __name__ == '__main__':
     main()
+    input("按任意键退出...")
