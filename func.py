@@ -1,23 +1,21 @@
 import hashlib
 from urllib.parse import urlparse
 import json
+import csv
+from datetime import datetime
+import pyperclip
+import random
 
 def get_md5(text):
     md5 = hashlib.md5()
     md5.update(text.encode('utf-8'))  # 将字符串编码为字节
     return md5.hexdigest()
 
-# parsed = urlparse(url)
-# print(parsed.netloc)
-
 def read_config(name):
     with open(name, 'r') as f:
         res = f.read()
     res = json.loads(res)
     return res
-
-# 格式化处理
-
 
 def get_main_domain(domain):
     """提取主域名，如从 www.bilibili.com 提取 bilibili.com"""
@@ -46,25 +44,65 @@ def ensure_valid_output(s, size):
                 break
     return s[:size]
 
-import csv
-from datetime import datetime
-import pyperclip
+def add_special_chars(password, special_chars, num_special_chars, position_rule, domain=""):
+    """为密码添加特殊字符"""
+    if not special_chars or num_special_chars <= 0:
+        return password
+    
+    # 选择要插入的特殊字符
+    selected_chars = random.choices(special_chars, k=num_special_chars)
+    
+    if position_rule == "hash_based":
+        # 基于域名哈希计算位置
+        hash_obj = get_md5(domain + "special")
+        positions = []
+        for i in range(num_special_chars):
+            # 使用哈希的不同部分计算位置
+            pos = int(hash_obj[i*4:(i+1)*4], 16) % len(password)
+            positions.append(pos)
+    elif position_rule == "fixed":
+        # 固定位置：均匀分布
+        step = len(password) // (num_special_chars + 1)
+        positions = [step * (i + 1) for i in range(num_special_chars)]
+    else:  # random
+        # 随机位置
+        positions = random.sample(range(len(password)), num_special_chars)
+    
+    # 按位置排序，确保从后往前插入（避免位置偏移）
+    positions.sort(reverse=True)
+    
+    # 插入特殊字符
+    password_list = list(password)
+    for i, pos in enumerate(positions):
+        password_list.insert(pos, selected_chars[i])
+    
+    return ''.join(password_list)
 
-def log_to_csv(domain, size, result):
+def log_to_csv(domain, size, result, is_special=False):
     """记录到CSV文件"""
-    with open('password_log.csv', 'a', newline='') as f:
+    with open('password_log.csv', 'a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow([
             datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             domain,
             size,
-            result
+            result,
+            "特殊字符版本" if is_special else "基础版本"
         ])
 
 def main():
-    config = read_config('setting.json')
+    try:
+        config = read_config('setting.json')
+    except FileNotFoundError:
+        print("配置文件 setting.json 不存在，请参考 setting.json.example 创建配置文件")
+        return
+    
     salt = config.get("salt", "")
     default_password = config.get("default_password", "")
+    password_lengths = config.get("password_lengths", [4, 6, 8])
+    default_copy = config.get("default_copy", {"length": 8, "with_special_chars": True})
+    special_chars = config.get("special_chars", "!@#$%^&*")
+    special_rules = config.get("special_rules", {"enabled": True, "num_special_chars": 1, "position_rule": "hash_based"})
 
     while True:
         url = input('请输入域名：')
@@ -84,27 +122,59 @@ def main():
     text = salt + domain
     md5_hash = get_md5(text)
     
-    # 生成4/6/8三种长度的密码
+    # 生成指定长度的密码（基础版本和特殊字符版本）
     results = {}
-    for size in [4, 6, 8]:
+    special_results = {}
+    
+    for size in password_lengths:
+        # 生成基础密码
         res = ensure_valid_output(md5_hash, size)
-        results[size] = passwd + res
+        base_password = passwd + res
+        results[size] = base_password
+        
+        # 生成带特殊字符的密码
+        if special_rules.get("enabled", True) and special_chars:
+            special_password = add_special_chars(
+                base_password,
+                special_chars,
+                special_rules.get("num_special_chars", 1),
+                special_rules.get("position_rule", "hash_based"),
+                domain
+            )
+            special_results[size] = special_password
     
     # 输出所有密码
     print("\n生成的密码:")
-    for size, pwd in results.items():
-        print(f"{size}位: {pwd}")
+    for size in password_lengths:
+        base_pwd = results[size]
+        if size in special_results:
+            special_pwd = special_results[size]
+            print(f"{size}位: {base_pwd:<15} [增强: {special_pwd}]")
+        else:
+            print(f"{size}位: {base_pwd}")
     
-    # 将默认size密码复制到剪贴板
-    default_size = config.get("default_size", 4)
-    pyperclip.copy(results[default_size])
-    print(f"\n已复制{default_size}位密码到剪贴板")
+    # 复制默认配置的密码到剪贴板
+    copy_length = default_copy.get("length", 8)
+    copy_special = default_copy.get("with_special_chars", True)
+    
+    if copy_length in password_lengths:
+        if copy_special and copy_length in special_results:
+            password_to_copy = special_results[copy_length]
+            print(f"\n已复制{copy_length}位增强密码到剪贴板: {password_to_copy}")
+        else:
+            password_to_copy = results[copy_length]
+            print(f"\n已复制{copy_length}位基础密码到剪贴板: {password_to_copy}")
+        
+        pyperclip.copy(password_to_copy)
+    else:
+        print(f"\n错误：配置的默认复制长度 {copy_length} 不在密码长度列表中")
     
     # 记录到日志文件
     for size, result in results.items():
-        log_to_csv(domain, size, result)
-
-
+        log_to_csv(domain, size, result, False)
+    
+    for size, result in special_results.items():
+        log_to_csv(domain, size, result, True)
 
 if __name__ == '__main__':
     main()

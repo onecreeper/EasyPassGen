@@ -1,5 +1,15 @@
 {
-    "salt": "salt ",
+    "salt": "salt",
     "default_password": "passwd",
-    "default_size": 4 
+    "password_lengths": [4, 6, 8, 10, 32],
+    "default_copy": {
+        "length": 8,
+        "with_special_chars": true
+    },
+    "special_chars": "!@#$%^&*",
+    "special_rules": {
+        "enabled": true,
+        "num_special_chars": 1,
+        "position_rule": "hash_based"
+    }
 }
